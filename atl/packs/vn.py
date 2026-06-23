@@ -71,8 +71,119 @@ def foreign_transfer_review(tool: str = "transfer_funds",
     return rule
 
 
+# ---- payments: NAPAS BIN + VietQR (EMVCo CRC) ----------------------------
+# Curated subset of NAPAS bank BINs (mã ngân hàng Napas247 / VietQR). Extend as
+# needed — this is the authoritative allow-set for validate_napas_bin.
+NAPAS_BINS = {
+    "970405": "Agribank", "970403": "Sacombank", "970407": "Techcombank",
+    "970409": "BacABank", "970412": "PVcomBank", "970415": "VietinBank",
+    "970416": "ACB", "970418": "BIDV", "970419": "NCB", "970422": "MB",
+    "970423": "TPBank", "970424": "ShinhanBank", "970425": "ABBank",
+    "970426": "MSB", "970427": "VietABank", "970428": "NamABank",
+    "970429": "SCB", "970430": "PGBank", "970431": "Eximbank",
+    "970432": "VPBank", "970436": "Vietcombank", "970437": "HDBank",
+    "970438": "BaoVietBank", "970440": "SeABank", "970441": "VIB",
+    "970443": "SHB", "970448": "OCB", "970449": "LPBank", "970452": "KienLongBank",
+}
+
+
+def crc16_ccitt(data: str) -> int:
+    """CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) over ASCII ``data``.
+
+    This is the checksum EMVCo (and therefore VietQR) appends as tag 63. The
+    standard check value is ``crc16_ccitt("123456789") == 0x29B1``.
+    """
+    crc = 0xFFFF
+    for byte in data.encode("ascii"):
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def validate_napas_bin(bin_code: str) -> bool:
+    """True iff ``bin_code`` is a known 6-digit NAPAS bank BIN."""
+    return bin_code in NAPAS_BINS
+
+
+def _parse_tlv(s: str) -> "list[tuple[str, str]]":
+    out, i, n = [], 0, len(s)
+    while i + 4 <= n:
+        tag, length = s[i:i + 2], s[i + 2:i + 4]
+        if not length.isdigit():
+            break
+        ln = int(length)
+        value = s[i + 4:i + 4 + ln]
+        if len(value) < ln:
+            break
+        out.append((tag, value))
+        i += 4 + ln
+    return out
+
+
+def parse_vietqr(payload: str) -> dict:
+    """Best-effort parse of a VietQR payload. Always reports ``valid_crc``."""
+    res = {"valid_crc": False, "bin": None, "account": None,
+           "amount": None, "currency": None, "bank": None}
+    idx = payload.rfind("6304")
+    if idx != -1 and len(payload) >= idx + 8:
+        data, provided = payload[:idx + 4], payload[idx + 4:idx + 8]
+        try:
+            res["valid_crc"] = crc16_ccitt(data) == int(provided, 16)
+        except ValueError:
+            res["valid_crc"] = False
+    for tag, value in _parse_tlv(payload):
+        if tag == "53":
+            res["currency"] = value
+        elif tag == "54":
+            res["amount"] = value
+        elif tag == "38":
+            for stag, sval in _parse_tlv(value):
+                if stag == "01":
+                    for btag, bval in _parse_tlv(sval):
+                        if btag == "00":
+                            res["bin"] = bval
+                            res["bank"] = NAPAS_BINS.get(bval)
+                        elif btag == "01":
+                            res["account"] = bval
+    return res
+
+
+def validate_vietqr(payload: str) -> bool:
+    """True iff the payload looks like VietQR and its EMVCo CRC checks out."""
+    return payload.startswith("0002") and parse_vietqr(payload)["valid_crc"]
+
+
+def napas_transfer_guard(tool: str = "transfer_funds", bin_arg: str = "bank_bin",
+                         qr_arg: str = "vietqr") -> Rule:
+    """Block transfers built from an unknown bank BIN or a corrupt VietQR.
+
+    A garbled or tampered VietQR (bad EMVCo CRC) or a typo'd / unknown NAPAS BIN
+    is a strong signal the payment instruction is wrong — stop before funds move.
+    No-op when neither field is present.
+    """
+    def rule(call: ToolCall) -> "PolicyResult | None":
+        if call.tool != tool:
+            return None
+        qr = call.args.get(qr_arg)
+        if qr is not None and not validate_vietqr(str(qr)):
+            return PolicyResult(
+                Decision.BLOCK, rule="napas_transfer_guard",
+                reason="VietQR sai checksum EMVCo (CRC-16) — mã thanh toán hỏng/giả mạo",
+            )
+        bin_code = call.args.get(bin_arg)
+        if bin_code is not None and not validate_napas_bin(str(bin_code)):
+            return PolicyResult(
+                Decision.BLOCK, rule="napas_transfer_guard",
+                reason=f"BIN ngân hàng '{bin_code}' không thuộc danh mục NAPAS",
+            )
+        return None
+    return rule
+
+
 def vn_money_movement_pack(threshold: int = AML_LARGE_TXN_VND) -> List[Rule]:
-    return [aml_large_transfer(threshold=threshold), foreign_transfer_review()]
+    return [aml_large_transfer(threshold=threshold), foreign_transfer_review(),
+            napas_transfer_guard()]
 
 
 # ---- personal data (NĐ 13/2023/NĐ-CP) ------------------------------------

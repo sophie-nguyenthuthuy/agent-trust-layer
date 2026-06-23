@@ -42,6 +42,8 @@ def main():
     show(layer, ToolCall("transfer_funds", {"amount_vnd": 250_000, "country": "VN"}))
     show(layer, ToolCall("transfer_funds", {"amount_vnd": 500_000_000, "country": "VN"}))
     show(layer, ToolCall("transfer_funds", {"amount_vnd": 1_000_000, "country": "US"}))
+    show(layer, ToolCall("transfer_funds", {"bank_bin": "999999"}))              # unknown BIN
+    show(layer, ToolCall("transfer_funds", {"vietqr": "000201...6304BEEF"}))     # bad CRC
     show(layer, ToolCall("send_email", {"body": "Khách CCCD 001090123456, sđt 0987654321"}))
     show(layer, ToolCall("send_email", {"body": "CCCD 001090123456", "consent": True}))
     show(layer, ToolCall("http_post", {"data": "đối tác MST 0101245486"}))   # business id

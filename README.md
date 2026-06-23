@@ -138,6 +138,7 @@ layer = TrustLayer(policy=RuleEngine(vn_pack()))   # AML + FX + PII, cited
 |---|---|---|
 | `aml_large_transfer` | transfer ≥ **400.000.000 VND** → ESCALATE | Luật PCRT 2022, **QĐ 11/2023/QĐ-TTg** |
 | `foreign_transfer_review` | outward FX transfer without license → ESCALATE | Pháp lệnh Ngoại hối, NĐ 70/2014/NĐ-CP |
+| `napas_transfer_guard` | transfer with unknown NAPAS BIN or **bad VietQR CRC** → BLOCK | NAPAS BIN registry · VietQR/EMVCo CRC-16 |
 | `vn_pii_guard` | egress tool carrying CCCD/phone/email without consent → ESCALATE/BLOCK | **NĐ 13/2023/NĐ-CP** |
 | `vn_pii_guard(include_mst=True)` | egress carrying a **checksum-valid MST** (tax code) → ESCALATE/BLOCK | TT 105/2020/TT-BTC |
 
@@ -151,6 +152,13 @@ checksum — so order ids and random digit runs don't false-positive. Matches
 carry a confidence (`high`/`low`); the unreliable 9-digit CMND and the business
 MST are opt-in (`include_cmnd=True` / `include_mst=True`); and
 `vn_pii_guard(allowlist=[...])` skips known-safe values (hotlines, fixtures).
+
+On the payments side, `validate_vietqr()` verifies the EMVCo **CRC-16/CCITT-FALSE**
+checksum a VietQR payload carries (proven against the standard vector
+`crc16_ccitt("123456789") == 0x29B1`) and `validate_napas_bin()` checks the bank
+code against a NAPAS BIN registry — so an agent constructing a payment from a
+tampered QR or a typo'd bank code is stopped before funds move. `parse_vietqr()`
+extracts BIN / account / amount for the audit trail.
 
 > Engineering controls, not legal advice — tune thresholds/citations with your compliance team.
 
@@ -213,7 +221,7 @@ atl/
   integrations/langgraph.py   guarded_tool_node() + guard_tools()
 eval/              before/after harness (metrics, workload, runner)
 examples/          multi_agent_demo · langgraph_agent (real StateGraph) · vn_governance_demo
-tests/             44 tests, stdlib + pytest (langgraph tests skip if not installed)
+tests/             49 tests, stdlib + pytest (langgraph tests skip if not installed)
 ```
 
 ## License
