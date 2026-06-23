@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-trust-layer"
+version = "0.1.0"
+description = "Certified trust & governance middleware for agent tool-use: policy-as-code, tamper-evident provenance, an Azuma-certified drift gate, and human-in-the-loop escalation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Nguyen Thu Thuy", email = "sophie.nguyenthuthuy@gmail.com" }]
+keywords = ["llm", "agents", "guardrails", "mlops", "governance", "drift", "langgraph"]
+dependencies = []   # core is stdlib-only by design
+
+[project.optional-dependencies]
+langgraph = ["langgraph>=0.2", "langchain-core>=0.3"]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/sophie-nguyenthuthuy/agent-trust-layer"
+
+[project.scripts]
+atl-eval = "eval.harness:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["atl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
