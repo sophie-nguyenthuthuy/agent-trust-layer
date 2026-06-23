@@ -21,6 +21,7 @@ jobs:
         run: |
           python examples/multi_agent_demo.py
           python examples/langgraph_agent.py
+          python examples/vn_governance_demo.py
       - name: eval harness (smoke + asserts the layer helps)
         run: |
           python -m eval.harness --n 400 --json results.json

@@ -10,6 +10,7 @@ hand-tuned threshold, so every decision carries an auditable certificate.
 from .gate import CertifiedGate
 from .hitl import HITLQueue
 from .middleware import GateBlocked, TrustLayer
+from .observability import MetricsServer, PrometheusSink, multi_sink, otel_sink
 from .policy import (
     RuleEngine,
     allow_tools,
@@ -33,6 +34,10 @@ __all__ = [
     "constrain_arg",
     "ProvenanceLog",
     "HITLQueue",
+    "PrometheusSink",
+    "MetricsServer",
+    "multi_sink",
+    "otel_sink",
     "ToolCall",
     "Verdict",
     "Decision",

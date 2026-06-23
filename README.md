@@ -121,6 +121,47 @@ The gate trips when `mean_emp ≥ baseline + ε(n)` **and** `mean_emp ≥ v_floo
 
 This is the [lyapguard](https://github.com/sophie-nguyenthuthuy/lyapguard) / lyapmon Azuma-drift design distilled to one embeddable class.
 
+## VN-grounded policy pack
+
+Off-the-shelf guardrails know nothing about Vietnamese money-movement or data
+law. `atl.packs.vn` ships rules anchored to real instruments — the differentiator
+for a VSF / Vietnam-market pitch:
+
+```python
+from atl import RuleEngine, TrustLayer
+from atl.packs.vn import vn_pack
+
+layer = TrustLayer(policy=RuleEngine(vn_pack()))   # AML + FX + PII, cited
+```
+
+| Rule | Trigger | Grounding |
+|---|---|---|
+| `aml_large_transfer` | transfer ≥ **400.000.000 VND** → ESCALATE | Luật PCRT 2022, **QĐ 11/2023/QĐ-TTg** |
+| `foreign_transfer_review` | outward FX transfer without license → ESCALATE | Pháp lệnh Ngoại hối, NĐ 70/2014/NĐ-CP |
+| `vn_pii_guard` | egress tool carrying CCCD/CMND/phone/email without consent → ESCALATE/BLOCK | **NĐ 13/2023/NĐ-CP** |
+
+Each verdict's `reason` carries the citation, so the provenance ledger is
+audit-ready. `python examples/vn_governance_demo.py` runs it end-to-end.
+
+> Engineering controls, not legal advice — tune thresholds/citations with your compliance team.
+
+## Observability — the dashboard story
+
+Every decision can fan out to metrics/tracing via the provenance `sink`:
+
+```python
+from atl import ProvenanceLog, PrometheusSink, MetricsServer, multi_sink, otel_sink
+
+prom = PrometheusSink()
+log = ProvenanceLog(sink=multi_sink(prom, otel_sink(tracer)))   # OTel optional
+MetricsServer(prom, port=9464).start()        # GET /metrics  (stdlib, zero-dep)
+```
+
+Exposes `atl_decisions_total{tool,actor,decision}`, `atl_blocked_total{tool}`,
+`atl_gate_trips_total`, `atl_provenance_entries_total`, `atl_gate_mean_risk` —
+scrape into Prometheus/Grafana. OTel spans (`atl.decision`) are emitted only if
+`opentelemetry` is installed (`pip install -e ".[otel]"`).
+
 ## Eval harness — does it actually help?
 
 A reproducible synthetic multi-agent workload (no LLM, no network — deterministic fault injection so the layer OFF and ON see *identical* tasks) measures TTFT, P95 latency, hallucination rate, and tool-misuse rate before/after.
@@ -156,12 +197,14 @@ atl/
   gate.py          CertifiedGate — Azuma-bounded drift gate  ★ the moat
   policy.py        RuleEngine + rule factories + PolicyEngine port (OPA/Cedar)
   provenance.py    hash-chained, HMAC-signed, offline-verifiable ledger
+  observability.py PrometheusSink + /metrics server + OTel sink (zero-dep core)
   hitl.py          HITLQueue — sync resolver + async pending queue
   middleware.py    TrustLayer — the interceptor wiring it all together
-  integrations/langgraph.py   guard_tools() for LangGraph ToolNode
+  packs/vn.py      Vietnam-grounded policy pack (AML / FX / NĐ 13/2023 PII)
+  integrations/langgraph.py   guarded_tool_node() + guard_tools()
 eval/              before/after harness (metrics, workload, runner)
-examples/          multi_agent_demo.py (no deps) · langgraph_agent.py (real StateGraph)
-tests/             24 tests, stdlib + pytest (langgraph tests skip if not installed)
+examples/          multi_agent_demo · langgraph_agent (real StateGraph) · vn_governance_demo
+tests/             34 tests, stdlib + pytest (langgraph tests skip if not installed)
 ```
 
 ## License

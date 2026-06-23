@@ -36,10 +36,12 @@ class TrustLayer:
         hitl: Optional[HITLQueue] = None,
         enabled: bool = True,
     ) -> None:
-        self.policy = policy or RuleEngine()
-        self.gate = gate or CertifiedGate()
-        self.provenance = provenance or ProvenanceLog()
-        self.hitl = hitl or HITLQueue()
+        # Explicit None checks, not `or`: ProvenanceLog.__len__ is 0 when empty,
+        # which makes a freshly-passed log falsy and would silently drop it.
+        self.policy = policy if policy is not None else RuleEngine()
+        self.gate = gate if gate is not None else CertifiedGate()
+        self.provenance = provenance if provenance is not None else ProvenanceLog()
+        self.hitl = hitl if hitl is not None else HITLQueue()
         # When disabled the layer is a pass-through — used to measure the
         # before/after delta in the eval harness without changing call sites.
         self.enabled = enabled
