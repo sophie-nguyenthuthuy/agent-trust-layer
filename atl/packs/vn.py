@@ -104,15 +104,20 @@ VALID_PHONE_PREFIXES = frozenset({
 
 CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
 
+# Trọng số tính chữ số kiểm tra của MST (mã số thuế), TT 105/2020/TT-BTC.
+MST_WEIGHTS = (31, 29, 23, 19, 17, 13, 7, 5, 3)
+
 _CCCD_RE = re.compile(r"(?<!\d)\d{12}(?!\d)")
 _CMND_RE = re.compile(r"(?<!\d)\d{9}(?!\d)")
 _PHONE_RE = re.compile(r"(?<![\d+])(?:\+84|0)\d{9}(?!\d)")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}")
+# MST: 10 chữ số, hoặc 10 + 3 chữ số chi nhánh (có thể có dấu '-').
+_MST_RE = re.compile(r"(?<!\d)\d{10}(?:-?\d{3})?(?!\d)")
 
 
 @dataclass(frozen=True)
 class PIIMatch:
-    kind: str          # cccd | cmnd | phone | email
+    kind: str          # cccd | cmnd | phone | email | mst
     value: str
     confidence: str    # high | medium | low
 
@@ -143,14 +148,33 @@ def _valid_phone(s: str) -> bool:
     return len(canon) == 10 and canon[:3] in VALID_PHONE_PREFIXES
 
 
+def validate_mst(s: str) -> bool:
+    """Validate a VN tax code (mã số thuế): mod-11 weighted check digit.
+
+    Accepts the 10-digit form and the 13-digit branch form (10 digits + 3-digit
+    branch suffix, with or without a hyphen). The check digit is the 10th digit;
+    the branch suffix is not checksummed.
+    """
+    d = _digits(s)
+    if len(d) not in (10, 13):
+        return False
+    core = d[:10]
+    check = 10 - (sum(int(core[i]) * MST_WEIGHTS[i] for i in range(9)) % 11)
+    return check == int(core[9])
+
+
 def find_vn_pii(text: str, *, include_cmnd: bool = False,
+                include_mst: bool = False,
                 allowlist: Iterable[str] = ()) -> List[PIIMatch]:
-    """Return validated Vietnamese-PII matches in ``text``.
+    """Return validated Vietnamese-identifier matches in ``text``.
 
     Args:
         include_cmnd: also scan for 9-digit CMND. Off by default — 9-digit
             validation is unreliable (collides with order ids etc.), so it is
             reported only at ``low`` confidence when enabled.
+        include_mst: also scan for MST (tax codes). Off by default — MST is a
+            *business* identifier (not personal data under NĐ 13/2023); enable it
+            for data-egress controls. Checksum-validated, ``high`` confidence.
         allowlist: literal values to ignore (e.g. a company's published hotline
             or test fixtures); phones/ids are compared in canonical digit form.
     """
@@ -180,6 +204,13 @@ def find_vn_pii(text: str, *, include_cmnd: bool = False,
         if v in allow_raw:
             continue
         add("email", v, "high")
+    if include_mst:
+        for m in _MST_RE.finditer(text):
+            v = m.group()
+            if v in allow_raw or _digits(v) in allow_digits:
+                continue
+            if validate_mst(v):
+                add("mst", v, "high")
     if include_cmnd:
         for m in _CMND_RE.finditer(text):
             v = m.group()
@@ -190,10 +221,12 @@ def find_vn_pii(text: str, *, include_cmnd: bool = False,
 
 
 def detect_vn_pii(text: str, *, include_cmnd: bool = False,
+                  include_mst: bool = False,
                   allowlist: Iterable[str] = ()) -> List[str]:
-    """Return the (deduped, ordered) PII kinds found — convenience over find_vn_pii."""
+    """Return the (deduped, ordered) kinds found — convenience over find_vn_pii."""
     kinds: List[str] = []
-    for m in find_vn_pii(text, include_cmnd=include_cmnd, allowlist=allowlist):
+    for m in find_vn_pii(text, include_cmnd=include_cmnd, include_mst=include_mst,
+                         allowlist=allowlist):
         if m.kind not in kinds:
             kinds.append(m.kind)
     return kinds
@@ -205,13 +238,15 @@ def vn_pii_guard(egress_tools: Iterable[str] = ("send_email", "http_post",
                  action: Decision = Decision.ESCALATE,
                  min_confidence: str = "high",
                  include_cmnd: bool = False,
+                 include_mst: bool = False,
                  allowlist: Iterable[str] = ()) -> Rule:
     """Gate egress tools that carry Vietnamese PII without a consent flag.
 
     NĐ 13/2023/NĐ-CP requires a lawful basis (typically consent) to process /
     transfer personal data. Calls carrying ``consent=True`` pass; otherwise a
     call whose args contain PII at/above ``min_confidence`` is escalated (or
-    blocked, if ``action`` is BLOCK).
+    blocked, if ``action`` is BLOCK). Set ``include_mst`` to also gate egress of
+    business tax codes.
     """
     tools = set(egress_tools)
     threshold = CONFIDENCE_RANK[min_confidence]
@@ -222,7 +257,7 @@ def vn_pii_guard(egress_tools: Iterable[str] = ("send_email", "http_post",
             return None
         blob = " ".join(str(v) for v in call.args.values())
         hits = [m for m in find_vn_pii(blob, include_cmnd=include_cmnd,
-                                       allowlist=allow)
+                                       include_mst=include_mst, allowlist=allow)
                 if CONFIDENCE_RANK[m.confidence] >= threshold]
         if hits:
             kinds = sorted({m.kind for m in hits})
@@ -235,11 +270,18 @@ def vn_pii_guard(egress_tools: Iterable[str] = ("send_email", "http_post",
     return rule
 
 
-def vn_pii_pack(action: Decision = Decision.ESCALATE) -> List[Rule]:
-    return [vn_pii_guard(action=action)]
+def vn_pii_pack(action: Decision = Decision.ESCALATE, *,
+                min_confidence: str = "high", include_cmnd: bool = False,
+                include_mst: bool = False,
+                allowlist: Iterable[str] = ()) -> List[Rule]:
+    return [vn_pii_guard(action=action, min_confidence=min_confidence,
+                         include_cmnd=include_cmnd, include_mst=include_mst,
+                         allowlist=allowlist)]
 
 
 def vn_pack(threshold: int = AML_LARGE_TXN_VND,
-            pii_action: Decision = Decision.ESCALATE) -> List[Rule]:
-    """The full Vietnam pack: money-movement + personal-data rules."""
-    return vn_money_movement_pack(threshold=threshold) + vn_pii_pack(action=pii_action)
+            pii_action: Decision = Decision.ESCALATE, *,
+            include_mst: bool = False) -> List[Rule]:
+    """The full Vietnam pack: money-movement + personal-data (+ optional MST) rules."""
+    return (vn_money_movement_pack(threshold=threshold)
+            + vn_pii_pack(action=pii_action, include_mst=include_mst))

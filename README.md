@@ -138,17 +138,19 @@ layer = TrustLayer(policy=RuleEngine(vn_pack()))   # AML + FX + PII, cited
 |---|---|---|
 | `aml_large_transfer` | transfer ≥ **400.000.000 VND** → ESCALATE | Luật PCRT 2022, **QĐ 11/2023/QĐ-TTg** |
 | `foreign_transfer_review` | outward FX transfer without license → ESCALATE | Pháp lệnh Ngoại hối, NĐ 70/2014/NĐ-CP |
-| `vn_pii_guard` | egress tool carrying CCCD/CMND/phone/email without consent → ESCALATE/BLOCK | **NĐ 13/2023/NĐ-CP** |
+| `vn_pii_guard` | egress tool carrying CCCD/phone/email without consent → ESCALATE/BLOCK | **NĐ 13/2023/NĐ-CP** |
+| `vn_pii_guard(include_mst=True)` | egress carrying a **checksum-valid MST** (tax code) → ESCALATE/BLOCK | TT 105/2020/TT-BTC |
 
 Each verdict's `reason` carries the citation, so the provenance ledger is
 audit-ready. `python examples/vn_governance_demo.py` runs it end-to-end.
 
 The PII detectors are **format-validated, not bare regex** — a CCCD candidate
 must carry a real province code (Thông tư 07/2016) and a plausible birth year, a
-phone must use a real post-2018 mobile prefix — so order ids and random digit
-runs don't false-positive. Matches carry a confidence (`high`/`low`), the
-unreliable 9-digit CMND is opt-in (`include_cmnd=True`, `low` confidence only),
-and `vn_pii_guard(allowlist=[...])` skips known-safe values (hotlines, fixtures).
+phone must use a real post-2018 mobile prefix, an MST must pass its mod-11
+checksum — so order ids and random digit runs don't false-positive. Matches
+carry a confidence (`high`/`low`); the unreliable 9-digit CMND and the business
+MST are opt-in (`include_cmnd=True` / `include_mst=True`); and
+`vn_pii_guard(allowlist=[...])` skips known-safe values (hotlines, fixtures).
 
 > Engineering controls, not legal advice — tune thresholds/citations with your compliance team.
 
@@ -211,7 +213,7 @@ atl/
   integrations/langgraph.py   guarded_tool_node() + guard_tools()
 eval/              before/after harness (metrics, workload, runner)
 examples/          multi_agent_demo · langgraph_agent (real StateGraph) · vn_governance_demo
-tests/             40 tests, stdlib + pytest (langgraph tests skip if not installed)
+tests/             44 tests, stdlib + pytest (langgraph tests skip if not installed)
 ```
 
 ## License

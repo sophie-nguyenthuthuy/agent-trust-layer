@@ -3,6 +3,7 @@ from atl.packs.vn import (
     AML_LARGE_TXN_VND,
     detect_vn_pii,
     find_vn_pii,
+    validate_mst,
     vn_money_movement_pack,
     vn_pack,
     vn_pii_guard,
@@ -11,6 +12,7 @@ from atl.packs.vn import (
 # Valid fixtures: province 001 (Hà Nội), 19xx male, born 1990; Viettel 098 mobile.
 VALID_CCCD = "001090123456"
 VALID_PHONE = "0987654321"
+VALID_MST = "0101245486"          # real 10-digit MST (check digit 6)
 
 
 def test_aml_threshold_escalates_at_400m():
@@ -90,6 +92,34 @@ def test_pii_guard_respects_allowlist():
     eng = RuleEngine([vn_pii_guard(allowlist=[VALID_PHONE])])
     v = eng.evaluate(ToolCall("send_email", {"body": f"hotline {VALID_PHONE}"}))
     assert v.decision is Decision.ALLOW
+
+
+def test_validate_mst_checksum():
+    assert validate_mst(VALID_MST)              # Vingroup
+    assert validate_mst("0101248141")           # FPT
+    assert not validate_mst("0101245487")       # wrong check digit
+    assert not validate_mst("12345")            # wrong length
+
+
+def test_validate_mst_13_digit_branch():
+    assert validate_mst("0101245486-001")       # hyphenated branch form
+    assert validate_mst("0101245486001")        # 13 contiguous digits
+    assert not validate_mst("0101245487-001")   # bad core check digit
+
+
+def test_mst_off_by_default_then_opt_in():
+    assert "mst" not in detect_vn_pii(f"đối tác {VALID_MST}")
+    hits = find_vn_pii(f"đối tác {VALID_MST}", include_mst=True)
+    assert any(m.kind == "mst" and m.confidence == "high" for m in hits)
+
+
+def test_mst_guard_via_pack():
+    eng = RuleEngine(vn_pack(include_mst=True))
+    v = eng.evaluate(ToolCall("send_email", {"body": f"xuất hóa đơn MST {VALID_MST}"}))
+    assert v.decision is Decision.ESCALATE
+    # A non-checksum 10-digit number is not mistaken for an MST.
+    ok = eng.evaluate(ToolCall("send_email", {"body": "mã 1234567890"}))
+    assert ok.decision is Decision.ALLOW
 
 
 def test_vn_pack_combines_both():
