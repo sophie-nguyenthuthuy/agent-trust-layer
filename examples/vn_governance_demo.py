@@ -42,8 +42,8 @@ def main():
     show(layer, ToolCall("transfer_funds", {"amount_vnd": 250_000, "country": "VN"}))
     show(layer, ToolCall("transfer_funds", {"amount_vnd": 500_000_000, "country": "VN"}))
     show(layer, ToolCall("transfer_funds", {"amount_vnd": 1_000_000, "country": "US"}))
-    show(layer, ToolCall("send_email", {"body": "Khách CCCD 012345678901, sđt 0987654321"}))
-    show(layer, ToolCall("send_email", {"body": "CCCD 012345678901", "consent": True}))
+    show(layer, ToolCall("send_email", {"body": "Khách CCCD 001090123456, sđt 0987654321"}))
+    show(layer, ToolCall("send_email", {"body": "CCCD 001090123456", "consent": True}))
 
     server = MetricsServer(sink, port=0).start()
     print(f"\n/metrics (served at http://127.0.0.1:{server.port}/metrics)\n" + "-" * 70)

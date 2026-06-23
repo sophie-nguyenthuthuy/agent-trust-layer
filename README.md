@@ -143,6 +143,13 @@ layer = TrustLayer(policy=RuleEngine(vn_pack()))   # AML + FX + PII, cited
 Each verdict's `reason` carries the citation, so the provenance ledger is
 audit-ready. `python examples/vn_governance_demo.py` runs it end-to-end.
 
+The PII detectors are **format-validated, not bare regex** — a CCCD candidate
+must carry a real province code (Thông tư 07/2016) and a plausible birth year, a
+phone must use a real post-2018 mobile prefix — so order ids and random digit
+runs don't false-positive. Matches carry a confidence (`high`/`low`), the
+unreliable 9-digit CMND is opt-in (`include_cmnd=True`, `low` confidence only),
+and `vn_pii_guard(allowlist=[...])` skips known-safe values (hotlines, fixtures).
+
 > Engineering controls, not legal advice — tune thresholds/citations with your compliance team.
 
 ## Observability — the dashboard story
@@ -204,7 +211,7 @@ atl/
   integrations/langgraph.py   guarded_tool_node() + guard_tools()
 eval/              before/after harness (metrics, workload, runner)
 examples/          multi_agent_demo · langgraph_agent (real StateGraph) · vn_governance_demo
-tests/             34 tests, stdlib + pytest (langgraph tests skip if not installed)
+tests/             40 tests, stdlib + pytest (langgraph tests skip if not installed)
 ```
 
 ## License
